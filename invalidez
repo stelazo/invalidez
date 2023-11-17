@@ -1,0 +1,157 @@
+# create to Stephany Lazo
+rm(list = ls())
+# pacotes
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(dplyr)
+library(ggplot2)
+
+inativos = read_excel("Z:/ArquivosTI/Atuario202310.xlsx", 
+                      sheet = "Inativo" , col_types = c("numeric", 
+                                                        "numeric",
+                                                        "numeric",
+                                                        "text",
+                                                        "text", 
+                                                        "numeric",
+                                                        "numeric",
+                                                        "text",
+                                                        "text", 
+                                                        "numeric",
+                                                        "numeric",
+                                                        "numeric", 
+                                                        "numeric",
+                                                        "numeric",
+                                                        "numeric", 
+                                                        "text",
+                                                        "text", 
+                                                        "numeric",
+                                                        "numeric", 
+                                                        "date",
+                                                        "date",
+                                                        "date",
+                                                        "date",
+                                                        "numeric", 
+                                                        "text",
+                                                        "numeric",
+                                                        "numeric",
+                                                        "numeric", 
+                                                        "numeric",
+                                                        "numeric",
+                                                        "numeric", 
+                                                        "numeric",
+                                                        "numeric",
+                                                        "numeric"))
+
+ativos = read_excel("Z:/ArquivosTI/Atuario202310.xlsx", 
+                      sheet = "Ativo" , col_types = c("numeric", #A
+                                                      "numeric", #B
+                                                      "numeric", #C
+                                                      "text", #D
+                                                      "text",  #E
+                                                      "numeric", #F
+                                                      "numeric", #G
+                                                      "text", #H
+                                                      "text", #I
+                                                      "numeric", #J
+                                                      "numeric", #K
+                                                      "numeric", #L
+                                                      "numeric", #M
+                                                      "numeric", #N
+                                                      "numeric", #O
+                                                      "text", #P
+                                                      "text", #Q
+                                                      "numeric", #R
+                                                      "numeric", #S
+                                                      "date", #T
+                                                      "numeric", #U
+                                                      "numeric", #V
+                                                      "date", #W
+                                                      "date", #X
+                                                      "date", #Y
+                                                      "text", #Z
+                                                      "date", #AA
+                                                      "text", #AB
+                                                      "numeric", #AC
+                                                      "numeric", #AD
+                                                      "numeric", #AE
+                                                      "numeric", #AF
+                                                      "numeric", #AG
+                                                      "numeric", #AH
+                                                      "numeric", #AI
+                                                      "numeric", #AJ
+                                                      "numeric", #AK
+                                                      "date", #AL
+                                                      "numeric", #AM
+                                                      "numeric", #AN
+                                                      "date")) #AO
+
+# tabela alvaro vindas
+Alvaro_Vindas = read_excel("Z:/GERENCIA/RELATÓRIO DE HIPÓTESES/2023/INVALIDEZ/teste/AlvaroVindas.xlsx", 
+                           sheet = "AlvaroVindas")
+# Base de inativos
+inativos = inativos %>% distinct(inativos$ID_APOSENTADO_CPF, .keep_all = TRUE)
+inativos$data_focal =  rep(as.Date("2023/10/30"), length(inativos$ID_APOSENTADO_CPF))
+ 
+# Calculando a Idade de aposentadoria
+inativos$idade = floor((inativos$DT_INICIO_APOSENTADORIA -inativos$DT_NASC_APOSENTADO)/365.25)
+inativos$idade = as.numeric(inativos$idade)
+
+# Retirando os duplicados e Calculando a idade na data focal para os ativos
+ativos = ativos %>% distinct(ativos$ID_SERVIDOR_CPF, .keep_all = TRUE)
+ativos$DT_NASC_SERVIDOR = as.Date(ativos$DT_NASC_SERVIDOR)
+ativos$data_focal =  rep(as.Date("2023/10/30"), length(ativos$ID_SERVIDOR_MATRICULA))
+ativos$idade = floor((ativos$data_focal - ativos$DT_NASC_SERVIDOR)/365.25)
+ativos$idade = as.numeric(ativos$idade)
+
+# filtrando a idade de ambas bases
+inativos = filter(inativos, between(inativos$idade, 18 , 111))
+ativos = filter(ativos, between(ativos$idade, 18 , 111))
+
+# Definindo um periodo de 5 anos
+inativos = filter(inativos, lubridate::year(inativos$DT_INICIO_APOSENTADORIA) >= 2018)
+
+# Filtrar dados de invalidez apenas para as idades presentes na tabela de Álvaro Vindas
+invalidez = filter(inativos, CO_TIPO_APOSENTADORIA == 4)
+
+idade_invalidez = invalidez %>%
+  group_by(idade) %>%
+  count() %>%
+  rename(n_invalidez = n)
+ 
+idade_ativos = ativos %>%
+  group_by(idade) %>%
+  count() %>%
+  rename(n_total = n)
+
+tab_combinada = left_join(idade_invalidez, idade_ativos)
+
+tab_combinada$probabilidade = tab_combinada$n_invalidez/(tab_combinada$n_total+tab_combinada$n_invalidez) 
+
+# Renomear colunas para combinar com invalidez
+alvaro_vindas = Alvaro_Vindas %>% rename(idade = idade,
+                                         prob_alvaro_vindas = px)
+
+# Combinar os dois conjuntos de dados usando rbind
+dados_combinados = left_join(tab_combinada, alvaro_vindas)
+
+#dados_combinados$probabilidade = dados_combinados$n * dados_combinados$prob_alvaro_vindas
+print(dados_combinados)
+
+# Teste de KS contra uma distribuição normal (mantendo o teste com os dados de invalidez reais)
+ks_result_total <- ks.test(dados_combinados$probabilidade, dados_combinados$prob_alvaro_vindas)
+
+# Exibir o resultado do teste
+print(ks_result_total)
+
+# elaborando nova tabela para visualização dos quantitativos
+quantitativo = data.frame(idade = dados_combinados$idade, n_total = dados_combinados$n_total)
+
+ggplot(quantitativo, aes(x = idade, y = n_total)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  geom_text(aes(label = idade), vjust = -0.5, size = 3) +
+  labs(title = "Tamanho da Amostra por Idade", x = "Idade", y = "Tamanho da Amostra")
+
+# Exportando tabelas para o Excel
+write_xlsx(list("Invalidez" = dados_combinados),
+           path = "./prob_invalidez.xlsx")
